@@ -1,0 +1,13 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Chaque utilisateur n'accède qu'à son propre dossier users/<son uid>/
+    match /users/{uid}/{allPaths=**} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      // Limite par fichier : 100 Mo (le quota total sera contrôlé côté serveur)
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.size < 100 * 1024 * 1024;
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

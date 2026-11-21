@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() { return signedIn() && request.auth.token.admin == true; }
+    function validName(n) { return n is string && n.size() >= 3 && n.size() <= 30; }
+
+    // Profil utilisateur
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      // Création : rôle, quota et usage imposés (100 Mo = 104857600 octets)
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['username','email','role','quotaBytes','usedBytes','createdAt'])
+        && validName(request.resource.data.username)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'user'
+        && request.resource.data.quotaBytes == 104857600
+        && request.resource.data.usedBytes == 0
+        && request.resource.data.createdAt == request.time;
+      // Modification : seulement le pseudo (jamais rôle/quota/usage)
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username'])
+        && validName(request.resource.data.username);
+      allow delete: if false;
+    }
+
+    // Métadonnées des fichiers (le contenu est dans Firebase Storage)
+    match /files/{fileId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if signedIn() && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Dossiers
+    match /folders/{folderId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if signedIn() && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Tout le reste est interdit
+    match /{document=**} { allow read, write: if false; }
+  }
+}
